@@ -38,7 +38,7 @@ class _LoginPageState extends State<LoginPage> {
         final userId = await AuthService.getCurrentUserId();
         if (userId != null) {
           // 先绑定消息分发，再连 WS，避免竞态漏消息
-          CallService.init(currentUserId: userId);
+          //CallService.init(currentUserId: userId);
           await WSService.connect();
         }
 

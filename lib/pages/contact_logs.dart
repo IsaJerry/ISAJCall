@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../auth/call_logs.dart';
+import '../auth/call_service.dart';
 import '../auth/ws_service.dart';
 import 'call_page.dart';
 
@@ -114,6 +115,29 @@ class _ContactLogsPageState extends State<ContactLogsPage>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToBottom(animated: false);
     });
+  }
+
+  Future<void> _startCall(BuildContext context) async {
+    final calleeId = int.parse(widget.contact["id"].toString());
+
+    try {
+      final call = await CallService.startCall(
+        selfId: widget.currentUserId,
+        peerId: calleeId,
+      );
+
+      if (!context.mounted) return;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => CallPage(call: call, isCaller: true)),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("发起通话失败：$e")));
+    }
   }
 
   void sendMessage() async {
@@ -252,17 +276,7 @@ class _ContactLogsPageState extends State<ContactLogsPage>
                     alignment: Alignment.centerRight,
                     child: IconButton(
                       icon: const Icon(Icons.call, color: Colors.green),
-                      onPressed: () {
-                        // Navigator.push(
-                        //   context,
-                        //   // MaterialPageRoute(
-                        //   //   builder: (_) => CallPage.outgoing(
-                        //   //     contact: widget.contact,
-                        //   //     currentUserId: widget.currentUserId,
-                        //   //   ),
-                        //   // ),
-                        // );
-                      },
+                      onPressed: () => _startCall(context),
                     ),
                   ),
                 ],

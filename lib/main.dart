@@ -32,7 +32,7 @@ class _MyAppState extends State<MyApp> {
       final userId = await AuthService.getCurrentUserId();
       if (userId != null) {
         // 应用重启后的“自动登录”场景：在进入 HomePage 前恢复 WS/信令监听
-        CallService.init(currentUserId: userId);
+        //CallService.init(currentUserId: userId);
         await WSService.connect();
       }
     }

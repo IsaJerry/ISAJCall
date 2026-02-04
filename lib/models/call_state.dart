@@ -1,13 +1,7 @@
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
-/// 通话生命周期状态
-enum CallStatus {
-  idle,
-  calling, // 已发起，等待对方
-  ringing, // 来电中
-  connected, // 已接通
-  ended,
-}
+/// 通话生命周期
+enum CallStatus { idle, calling, ringing, connected, ended }
 
 class CallState {
   final String callId;
@@ -31,7 +25,7 @@ class CallState {
     );
   }
 
-  /// 统一释放资源
+  /// 统一释放
   Future<void> close() async {
     try {
       await pc?.close();

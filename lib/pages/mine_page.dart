@@ -48,7 +48,7 @@ class _MinePageState extends State<MinePage> {
 
   logout() async {
     await AuthService.logout();
-    CallService.dispose();
+    //CallService.dispose();
     WSService.disconnect();
     Navigator.pushAndRemoveUntil(
       context,

@@ -1,118 +1,190 @@
-import 'dart:convert';
-import 'dart:math';
+import 'dart:async';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../models/call_state.dart';
-import '../auth/ws_service.dart';
 import '../auth/ice_service.dart';
+import '../config/config.dart';
+import 'ws_service.dart';
 
 class CallService {
   static CallState? current;
 
+  static Timer? _callTimeoutTimer;
+
   /// UI 回调
-  static Function(Map msg)? onIncoming;
-  static Function(Map msg)? onPending;
-  static Function(Map msg)? onAccepted;
-  static Function(Map msg)? onConnected;
-  static Function(Map msg)? onHangup;
-  static Function(Map msg)? onTimeout;
-  static Function(Map msg)? onError;
+  static void Function(Map msg)? onIncoming;
+  static void Function(Map msg)? onAccepted;
+  static void Function(Map msg)? onConnected;
+  static void Function(Map msg)? onHangup;
+  static void Function(Map msg)? onError;
+  static void Function(Map msg)? onTimeout;
 
-  /// ================= 发起通话 =================
-  static Future<CallState> startCall({
-    required int selfId,
-    required int calleeId,
-  }) async {
-    final pc = await IceService.createPeerConnection();
-    final stream = await IceService.openUserMedia();
+  /* ------------------------------------------------------------------ */
+  /*                         内部统一初始化                               */
+  /* ------------------------------------------------------------------ */
 
-    for (final track in stream.getTracks()) {
-      pc.addTrack(track, stream);
+  static Future<void> _initPeerAndMedia(CallState call) async {
+    call.pc ??= await _createPeerConnection();
+    call.localStream ??= await _openUserMedia();
+    call.remoteStream ??= await createLocalMediaStream('remote');
+
+    for (final track in call.localStream!.getTracks()) {
+      call.pc!.addTrack(track, call.localStream!);
     }
 
-    final offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+    call.pc!.onConnectionState = (state) {
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        call.status = CallStatus.connected;
+        onConnected?.call({});
+      }
+    };
 
-    final callId = _genCallId();
-
-    current = CallState(callId: callId, selfId: selfId, peerId: calleeId)
-      ..pc = pc
-      ..localStream = stream
-      ..status = CallStatus.calling;
-
-    pc.onIceCandidate = (c) {
-      if (c.candidate == null) return;
-      WsService.send({
+    call.pc!.onIceCandidate = (c) {
+      if (c?.candidate == null) return;
+      WSService.send({
         "type": "ice-candidate",
-        "callId": callId,
-        "targetId": calleeId,
+        "callId": call.callId,
+        "targetId": call.peerId,
         "candidate": {
-          "candidate": c.candidate,
+          "candidate": c!.candidate,
           "sdpMid": c.sdpMid,
           "sdpMLineIndex": c.sdpMLineIndex,
         },
       });
     };
-
-    pc.onTrack = (e) {
-      current?.remoteStream ??= e.streams.first;
-    };
-
-    WsService.send({
-      "type": "call-request",
-      "calleeId": calleeId,
-      "sdp": offer.sdp,
-      "callId": callId,
-    });
-
-    return current!;
   }
 
-  /// ================= 接听 =================
-  static Future<void> acceptCall({
-    required CallState call,
-    required String remoteSdp,
+  /* ------------------------------------------------------------------ */
+  /*                            发起通话                                  */
+  /* ------------------------------------------------------------------ */
+
+  static Future<CallState> startCall({
+    required int selfId,
+    required int peerId,
   }) async {
-    await call.pc!.setRemoteDescription(
-      RTCSessionDescription(remoteSdp, "offer"),
+    /// ICE 自检（仅主叫需要）
+    final iceResult = await IceTestService.testIce();
+    if (iceResult.status != IceTestStatus.success) {
+      throw Exception(iceResult.message);
+    }
+
+    final call = CallState(
+      callId: 'call_${DateTime.now().millisecondsSinceEpoch}',
+      selfId: selfId,
+      peerId: peerId,
     );
+
+    current = call;
+    call.status = CallStatus.calling;
+
+    _startCallTimeout();
+
+    await _initPeerAndMedia(call);
+
+    final offer = await call.pc!.createOffer();
+    await call.pc!.setLocalDescription(offer);
+
+    WSService.send({
+      "type": "call-request",
+      "callId": call.callId,
+      "calleeId": peerId,
+      "sdp": offer.sdp,
+    });
+
+    return call;
+  }
+
+  static void _startCallTimeout({
+    Duration timeout = const Duration(seconds: 30),
+  }) {
+    _callTimeoutTimer?.cancel();
+    _callTimeoutTimer = Timer(timeout, () {
+      if (current != null &&
+          current!.status != CallStatus.connected &&
+          current!.status != CallStatus.ended) {
+        onTimeout?.call({});
+        endCall();
+      }
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*                          来电预处理（不接听）                         */
+  /* ------------------------------------------------------------------ */
+
+  static Future<CallState> prepareIncomingCall({
+    required int selfId,
+    required Map incoming,
+  }) async {
+    final call = CallState(
+      callId: incoming["callId"],
+      selfId: selfId,
+      peerId: int.parse(incoming["from"].toString()),
+    );
+
+    current = call;
+    call.status = CallStatus.ringing;
+
+    await _initPeerAndMedia(call);
+
+    /// 只 set offer，不 answer
+    await call.pc!.setRemoteDescription(
+      RTCSessionDescription(incoming["sdp"], "offer"),
+    );
+
+    return call;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*                             接听通话                                  */
+  /* ------------------------------------------------------------------ */
+
+  static Future<CallState> acceptCall({
+    required Map msg,
+    required int selfId,
+  }) async {
+    final call =
+        current ??
+        CallState(callId: msg['callId'], selfId: selfId, peerId: msg['from']);
+
+    current = call;
+    call.status = CallStatus.connected;
+
+    _callTimeoutTimer?.cancel();
+
+    await _initPeerAndMedia(call);
+
+    /// 防止未经过 prepareIncomingCall 的情况
+    // if (call.pc!.remoteDescription == null) {
+    //   await call.pc!.setRemoteDescription(
+    //     RTCSessionDescription(msg['sdp'], 'offer'),
+    //   );
+    // }
 
     final answer = await call.pc!.createAnswer();
     await call.pc!.setLocalDescription(answer);
 
-    WsService.send({
+    WSService.send({
       "type": "call-accept",
       "callId": call.callId,
       "sdp": answer.sdp,
-    });
-  }
-
-  /// ================= 挂断 =================
-  static void hangup({String reason = "用户主动挂断"}) {
-    if (current == null) return;
-
-    WsService.send({
-      "type": "call-hangup",
-      "callId": current!.callId,
-      "reason": reason,
+      "targetId": call.peerId,
     });
 
-    current!.close();
-    current = null;
+    return call;
   }
 
-  /// ================= 信令入口 =================
-  static void handleMessage(String raw) {
-    final msg = jsonDecode(raw);
+  /* ------------------------------------------------------------------ */
+  /*                           信令处理入口                                 */
+  /* ------------------------------------------------------------------ */
+
+  static void handleSignal(Map msg) {
     final type = msg['type'];
 
     switch (type) {
+      case 'call-request':
       case 'call-incoming':
         onIncoming?.call(msg);
-        break;
-
-      case 'call-pending':
-        onPending?.call(msg);
         break;
 
       case 'call-accepted':
@@ -123,29 +195,72 @@ class CallService {
         onConnected?.call(msg);
         break;
 
-      case 'call-hangup':
-        onHangup?.call(msg);
-        current?.close();
-        current = null;
+      case 'ice-candidate':
+        current?.addRemoteIce(msg['candidate']);
         break;
 
       case 'call-timeout':
         onTimeout?.call(msg);
-        current?.close();
-        current = null;
+        endCall();
+        break;
+
+      case 'call-hangup':
+        onHangup?.call(msg);
+        endCall();
         break;
 
       case 'call-error':
         onError?.call(msg);
-        break;
-
-      case 'ice-candidate':
-        current?.addRemoteIce(msg['candidate']);
+        endCall();
         break;
     }
   }
 
-  static String _genCallId() {
-    return 'call_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(999999)}';
+  /* ------------------------------------------------------------------ */
+  /*                             挂断                                     */
+  /* ------------------------------------------------------------------ */
+
+  static void hangup() {
+    if (current == null) return;
+    WSService.send({
+      "type": "call-hangup",
+      "callId": current!.callId,
+      "targetId": current!.peerId,
+    });
+    endCall();
+  }
+
+  static Future<void> endCall() async {
+    await current?.close();
+    current = null;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*                          工具方法                                     */
+  /* ------------------------------------------------------------------ */
+
+  static Future<RTCPeerConnection> _createPeerConnection() async {
+    final turnUrl = await Config.turnUrl();
+    final turnUser = await Config.turnUsername();
+    final turnPass = await Config.turnPassword();
+
+    return await createPeerConnection({
+      "iceServers": [
+        {"urls": turnUrl, "username": turnUser, "credential": turnPass},
+      ],
+      "iceTransportPolicy": "all",
+    });
+  }
+
+  static Future<MediaStream> _openUserMedia() async {
+    return await navigator.mediaDevices.getUserMedia({
+      "audio": true,
+      "video": {"facingMode": "user"},
+    });
+  }
+
+  static void cancelCallTimeout() {
+    _callTimeoutTimer?.cancel();
+    _callTimeoutTimer = null;
   }
 }

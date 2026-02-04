@@ -31,11 +31,11 @@ class _CallPageState extends State<CallPage> {
   void initState() {
     super.initState();
     stage = widget.isCaller ? CallUIStage.calling : CallUIStage.ringing;
-    _initRenderers();
+    _init();
     _bindSignals();
   }
 
-  Future<void> _initRenderers() async {
+  Future<void> _init() async {
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
     _localRenderer.srcObject = widget.call.localStream;
@@ -43,6 +43,7 @@ class _CallPageState extends State<CallPage> {
 
   void _bindSignals() {
     CallService.onAccepted = (msg) async {
+      CallService.cancelCallTimeout();
       await widget.call.pc!.setRemoteDescription(
         RTCSessionDescription(msg['sdp'], 'answer'),
       );
@@ -59,26 +60,7 @@ class _CallPageState extends State<CallPage> {
   }
 
   void _exit() {
-    Navigator.pop(context);
-  }
-
-  void _toggleMic() {
-    for (final t in widget.call.localStream!.getAudioTracks()) {
-      t.enabled = !t.enabled;
-    }
-    setState(() => micOn = !micOn);
-  }
-
-  void _toggleCamera() {
-    for (final t in widget.call.localStream!.getVideoTracks()) {
-      t.enabled = !t.enabled;
-    }
-    setState(() => cameraOn = !cameraOn);
-  }
-
-  void _toggleSpeaker() {
-    speakerOn = !speakerOn;
-    setState(() {});
+    if (mounted) Navigator.pop(context);
   }
 
   void _hangup() {
@@ -94,103 +76,50 @@ class _CallPageState extends State<CallPage> {
   }
 
   // ================= UI =================
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          _buildMainVideo(),
-          if (stage == CallUIStage.connected) _buildLocalPreview(),
-          _buildTopBar(),
-          _buildBottomControls(),
+          RTCVideoView(
+            stage == CallUIStage.connected ? _remoteRenderer : _localRenderer,
+            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+          ),
+          if (stage == CallUIStage.connected)
+            Positioned(
+              right: 16,
+              bottom: 120,
+              child: SizedBox(
+                width: 120,
+                height: 160,
+                child: RTCVideoView(_localRenderer, mirror: true),
+              ),
+            ),
+          Positioned(
+            top: 40,
+            left: 16,
+            child: IconButton(
+              icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white),
+              onPressed: NativeCall.enterPictureInPicture,
+            ),
+          ),
+          Positioned(
+            bottom: 30,
+            left: 0,
+            right: 0,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [_btn(Icons.call_end, Colors.red, _hangup, 64)],
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildMainVideo() {
-    return Positioned.fill(
-      child: RTCVideoView(
-        stage == CallUIStage.connected ? _remoteRenderer : _localRenderer,
-        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-      ),
-    );
-  }
-
-  Widget _buildLocalPreview() {
-    return Positioned(
-      right: 16,
-      bottom: 120,
-      child: Container(
-        width: 120,
-        height: 160,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white24),
-        ),
-        child: RTCVideoView(
-          _localRenderer,
-          mirror: true,
-          objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTopBar() {
-    return Positioned(
-      top: 40,
-      left: 16,
-      child: IconButton(
-        icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white),
-        onPressed: NativeCall.enterPictureInPicture,
-      ),
-    );
-  }
-
-  Widget _buildBottomControls() {
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 30,
-      child: SafeArea(
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            _circleButton(
-              icon: micOn ? Icons.mic : Icons.mic_off,
-              color: micOn ? Colors.white : Colors.red,
-              onTap: _toggleMic,
-            ),
-            _circleButton(
-              icon: cameraOn ? Icons.videocam : Icons.videocam_off,
-              color: cameraOn ? Colors.white : Colors.red,
-              onTap: _toggleCamera,
-            ),
-            _circleButton(
-              icon: Icons.call_end,
-              color: Colors.red,
-              size: 64,
-              onTap: _hangup,
-            ),
-            _circleButton(
-              icon: speakerOn ? Icons.volume_up : Icons.hearing,
-              color: Colors.white,
-              onTap: _toggleSpeaker,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _circleButton({
-    required IconData icon,
-    required Color color,
-    required VoidCallback onTap,
-    double size = 48,
-  }) {
+  Widget _btn(IconData icon, Color color, VoidCallback onTap, double size) {
     return GestureDetector(
       onTap: onTap,
       child: Container(

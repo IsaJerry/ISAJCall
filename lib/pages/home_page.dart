@@ -27,35 +27,37 @@ class _HomePageState extends State<HomePage> {
     if (!mounted || uid == null) return;
 
     // 全局来电：直接 push 到通话页面（用于学习/调试，后续可改成浮窗）
-    CallService.onIncoming = (msg) {
+    CallService.onIncoming = (msg) async {
       if (!mounted || _handlingIncoming) return;
       _handlingIncoming = true;
 
-      final from =
-          (msg["from"] ??
-          msg["callerId"] ??
-          msg["from_id"] ??
-          msg["caller_id"]);
-      final callerId = int.tryParse(from?.toString() ?? "") ?? -1;
+      final from = msg["from"];
+      final callerId = int.tryParse(from.toString()) ?? -1;
 
-      final contact = {
-        "id": callerId,
-        "username": msg["callerName"]?.toString() ?? "用户$callerId",
-      };
+      try {
+        //这里还没有创建 pc，只是准备接听
+        final call = await CallService.prepareIncomingCall(
+          selfId: uid,
+          incoming: msg,
+        );
 
-      // Navigator.of(context)
-      //     .push(
-      //       MaterialPageRoute(
-      //         builder: (_) => CallPage.incoming(
-      //           contact: contact,
-      //           currentUserId: uid,
-      //           incomingPayload: msg,
-      //         ),
-      //       ),
-      //     )
-      //     .whenComplete(() {
-      //   _handlingIncoming = false;
-      // });
+        if (!mounted) return;
+
+        Navigator.of(context)
+            .push(
+              MaterialPageRoute(
+                builder: (_) => CallPage(
+                  call: call,
+                  isCaller: false, // 👈 被叫
+                ),
+              ),
+            )
+            .whenComplete(() {
+              _handlingIncoming = false;
+            });
+      } catch (e) {
+        _handlingIncoming = false;
+      }
     };
   }
 
