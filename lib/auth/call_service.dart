@@ -40,13 +40,13 @@ class CallService {
     };
 
     call.pc!.onIceCandidate = (c) {
-      if (c?.candidate == null) return;
+      if (c.candidate == null) return;
       WSService.send({
         "type": "ice-candidate",
         "callId": call.callId,
         "targetId": call.peerId,
         "candidate": {
-          "candidate": c!.candidate,
+          "candidate": c.candidate,
           "sdpMid": c.sdpMid,
           "sdpMLineIndex": c.sdpMLineIndex,
         },

@@ -31,8 +31,8 @@ class _HomePageState extends State<HomePage> {
       if (!mounted || _handlingIncoming) return;
       _handlingIncoming = true;
 
-      final from = msg["from"];
-      final callerId = int.tryParse(from.toString()) ?? -1;
+      //final from = msg["from"];
+      //final callerId = int.tryParse(from.toString()) ?? -1;
 
       try {
         //这里还没有创建 pc，只是准备接听
