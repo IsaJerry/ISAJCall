@@ -32,6 +32,14 @@ class CallService {
       call.pc!.addTrack(track, call.localStream!);
     }
 
+    // 关键：监听远程流
+    call.pc!.onTrack = (event) {
+      call.remoteStream = event.streams[0];
+      if (call.status == CallStatus.connected) {
+        onConnected?.call({});
+      }
+    };
+
     call.pc!.onConnectionState = (state) {
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         call.status = CallStatus.connected;
@@ -63,10 +71,10 @@ class CallService {
     required int peerId,
   }) async {
     /// ICE 自检（仅主叫需要）
-    final iceResult = await IceTestService.testIce();
-    if (iceResult.status != IceTestStatus.success) {
-      throw Exception(iceResult.message);
-    }
+    // final iceResult = await IceTestService.testIce();
+    // if (iceResult.status != IceTestStatus.success) {
+    //   throw Exception(iceResult.message);
+    // }
 
     final call = CallState(
       callId: 'call_${DateTime.now().millisecondsSinceEpoch}',
@@ -143,23 +151,28 @@ class CallService {
     required Map msg,
     required int selfId,
   }) async {
-    final call =
+    CallState call =
         current ??
-        CallState(callId: msg['callId'], selfId: selfId, peerId: msg['from']);
-
+        CallState(
+          callId: msg['callId'],
+          selfId: selfId,
+          peerId: int.parse(msg['from'].toString()),
+        );
     current = call;
     call.status = CallStatus.connected;
 
     _callTimeoutTimer?.cancel();
 
-    await _initPeerAndMedia(call);
+    if (call.pc == null) {
+      await _initPeerAndMedia(call);
+    }
 
-    /// 防止未经过 prepareIncomingCall 的情况
-    // if (call.pc!.remoteDescription == null) {
-    //   await call.pc!.setRemoteDescription(
-    //     RTCSessionDescription(msg['sdp'], 'offer'),
-    //   );
-    // }
+    // 确保远端描述已设置（来自 prepareIncomingCall）
+    if (await call.pc!.getRemoteDescription() == null) {
+      await call.pc!.setRemoteDescription(
+        RTCSessionDescription(msg['sdp'], 'offer'),
+      );
+    }
 
     final answer = await call.pc!.createAnswer();
     await call.pc!.setLocalDescription(answer);
@@ -168,12 +181,10 @@ class CallService {
       "type": "call-accept",
       "callId": call.callId,
       "sdp": answer.sdp,
-      "targetId": call.peerId,
     });
 
     return call;
   }
-
   /* ------------------------------------------------------------------ */
   /*                           信令处理入口                                 */
   /* ------------------------------------------------------------------ */
@@ -225,7 +236,7 @@ class CallService {
     WSService.send({
       "type": "call-hangup",
       "callId": current!.callId,
-      "targetId": current!.peerId,
+      "calleeId": current!.peerId, // 将 targetId 改为 calleeId
     });
     endCall();
   }

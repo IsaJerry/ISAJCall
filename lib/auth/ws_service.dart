@@ -56,9 +56,7 @@ class WSService {
       final qp = <String, String>{...baseUri.queryParameters, "token": token};
       final wsUri = baseUri.replace(queryParameters: qp);
 
-      _channel = WebSocketChannel.connect(
-        wsUri,
-      );
+      _channel = WebSocketChannel.connect(wsUri);
 
       _connected = true;
       _notifyStatus(true);
@@ -67,6 +65,8 @@ class WSService {
       _channel!.stream.listen(
         (message) {
           final data = jsonDecode(message);
+
+          print("[WS Receive] ${data["type"]}");
 
           // 处理好友在线状态推送
           if (data["type"] == "online-status" && data["targetUserId"] != null) {

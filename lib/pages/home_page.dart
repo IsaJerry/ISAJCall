@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../auth/ws_service.dart';
 import 'mine_page.dart';
 import 'friends_page.dart';
 import 'contacts_page.dart';
@@ -20,6 +21,9 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _bootstrapRealtime();
+    WSService.addEventListener((data) {
+      CallService.handleSignal(data);
+    });
   }
 
   Future<void> _bootstrapRealtime() async {
@@ -64,7 +68,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      ContactsPage(), // 新增联系人页
+      ContactsPage(), // 联系人页
       FriendsPage(
         onRequestCountChange: (c) => setState(() => requestCount = c),
       ),

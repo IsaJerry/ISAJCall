@@ -1,11 +1,11 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 class Config {
-  static const String baseUrl = "http://162.251.95.188:3000";
+  static const String baseUrl = "https://isajcall.159357.best";
 
-  static const String wsUrl = "ws://162.251.95.188:3000";
+  static const String wsUrl = "wss://isajcall.159357.best";
 
-  static const String _defaultTurnUrl = "turn:162.251.95.188:3478";
+  static const String _defaultTurnUrl = "turn:38.165.17.30:3478";
   static const String _defaultTurnUsername = "isaj";
   static const String _defaultTurnPassword = "isajerry";
 

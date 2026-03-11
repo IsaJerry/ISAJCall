@@ -156,6 +156,7 @@ class _ContactLogsPageState extends State<ContactLogsPage>
       return;
     }
 
+    // 本地渲染（临时显示，稍后服务器会推送 real-time-message 更新状态）
     final message = {
       "type": "message",
       "messageId": DateTime.now().millisecondsSinceEpoch,
@@ -165,20 +166,11 @@ class _ContactLogsPageState extends State<ContactLogsPage>
       "created_at": DateTime.now().toIso8601String(),
       "is_read": 1,
     };
-
-    // 本地渲染
     setState(() => logs.add(message));
     msgCtrl.clear();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
 
-    // 滚动到底部
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToBottom();
-    });
-
-    // 推送 WS
-    if (WSService.connected) {
-      WSService.send(message);
-    }
+    // 不再发送 WebSocket 消息
   }
 
   void onWsEvent(Map data) {
@@ -186,7 +178,7 @@ class _ContactLogsPageState extends State<ContactLogsPage>
 
     final targetId = int.parse(widget.contact["id"].toString());
 
-    // 更新在线状态
+    // 在线状态更新
     if (data["type"] == "online-status" &&
         data["targetUserId"].toString() == targetId.toString()) {
       setState(() {
@@ -194,7 +186,7 @@ class _ContactLogsPageState extends State<ContactLogsPage>
       });
     }
 
-    // 收到实时消息
+    // 实时消息
     if (data["type"] == "real-time-message") {
       onRealtimeMessage(data);
     }
